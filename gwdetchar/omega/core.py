@@ -118,6 +118,109 @@ def whiten(series, fftlength, overlap=None, method='median', window='hann',
                          detrend=detrend, method=method).detrend(detrend)
 
 
+def apply_coupling_functions(block, data, cf_file):
+    import h5py
+    from copy import copy
+    from .config import OmegaChannel
+    h5f = h5py.File(cf_file, 'r')
+    new_channels = []
+    for c in block.channels:
+        channel_key = c.name.replace(':', '_').replace('-', '_')
+        try:
+            cf_data = h5f[channel_key + '/table'][()]
+        except KeyError:
+            print("no coupling function found for {}".format(c.name))
+            new_channels.append(c)
+            continue
+        if '_MAG_' in c.name:
+            cf_data = cf_data[cf_data['factor'] > 0]
+        c_new = OmegaChannel(c.name + '_coupling', c.section, **c.params)
+        series = apply_cf(data[c.name], cf_data)
+        series.channel = c_new
+        series.name = c_new.name
+        data[c_new.name] = series
+        new_channels.extend([c, c_new])
+    h5f.close()
+    block.channels = new_channels
+    return block, data
+
+
+def apply_cf(series, cf_data):
+    """Apply coupling functions to time series
+    """
+    fft = series.fft()
+    fft_freqs = fft.frequencies.value
+    cf_interp = interp1d(fft_freqs, cf_data['frequency'], cf_data['factor_counts'])
+    flag_interp = interp1d(fft_freqs, cf_data['frequency'], cf_data['flag'], kind='nearest')
+    fft_pred = fft * cf_interp / 4000
+    out = 2 * fft_pred.ifft()
+    return out
+
+
+def interp1d(x_out, x_in, y_in, kind='linear'):
+    """Interpolation method that can also do nearest-value interpolation
+    """
+    import numpy as np
+    if kind == 'linear':
+        y_out = np.interp(x_out, x_in, y_in)
+    elif kind == 'nearest':
+        y_out = np.zeros(x_out.size, dtype=np.object)
+        for i, x_value in enumerate(x_out):
+            nearest = np.argmin(np.abs(x_in - x_value))
+            y_out[i] = y_in[nearest]
+    else:
+        raise ValueError('invalid interpolation method ' + str(kind))
+    return y_out
+
+
+def get_waveform(graceid, ifo, approximant='SEOBNRv4_ROM', f_lower=10):
+    """Get time-domain waveform of an event based on GraceDb parameters
+
+    Parameters
+    ----------
+    graceid : str
+    ifo : str, {'H1', 'L1'}
+    approximant : str, optional
+    f_lower : int, optional
+    sample_rate : int, optional
+
+    Returns
+    -------
+    waveform : `~gwpy.timeseries.TimeSeries` object
+        Frequency time series f(t).
+    """
+    from ligo.gracedb.rest import GraceDb, HTTPError
+    from pycbc.pnutils import get_inspiral_tf
+    client = GraceDb()
+    try:
+        super_event = client.superevent(graceid).json()
+    except HTTPError:
+        eventid = graceid
+    else:
+        eventid = super_event['preferred_event']
+    try:
+        event = client.event(eventid).json()
+    except HTTPError:
+        raise ValueError("event {} not found".format(eventid))
+    ifos = event['instruments'].split(',')
+    if ifo in ifos:
+        sngl_insp = event['extra_attributes']['SingleInspiral'][ifos.index(ifo)]
+        end_time = sngl_insp['end_time'] + float(sngl_insp['end_time_ns']) * 1e-9
+        start_time = end_time - sngl_insp['template_duration']
+        times, freqs = get_inspiral_tf(
+            end_time,
+            sngl_insp['mass1'],
+            sngl_insp['mass2'],
+            sngl_insp['spin1z'],
+            sngl_insp['spin2z'],
+            f_lower,
+            approximant=approximant
+        )
+        return times, freqs
+    else:
+        return None
+
+
 # -- omega scans --------------------------------------------------------------
 
 def conditioner(xoft, fftlength, overlap=None, resample=None, f_low=None,

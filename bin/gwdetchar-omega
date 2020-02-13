@@ -71,6 +71,12 @@ parser.add_argument('-t', '--far-threshold', type=float, default=3.171e-8,
                          'processing channels, default: %(default)s')
 parser.add_argument('-c', '--colormap', default='viridis',
                     help='name of colormap to use, default: %(default)s')
+parser.add_argument('--coupling-functions-file',
+                    help='coupling function .h5 file for apply coupling '
+                         'functions to aux channels, default: None')
+parser.add_argument('--graceid',
+                    help='GraceDb id of an event to include its '
+                         'time-frequency signal track (if applicable)')
 cli.add_nproc_option(parser)
 
 args = parser.parse_args()
@@ -196,7 +202,18 @@ if not args.disable_correlation:
 else:
     correlate = None
 
+# create time-frequency signal track from GraceDb info
+if args.graceid is not None:
+    try:
+        gw_track = omega.get_waveform(args.graceid, ifo)
+    except (KeyError, ValueError):
+        logger.warning("-- Failed to generate inspiral track for plotting")
+        gw_track = None
+else:
+    gw_track = None
+
 # range over channel blocks
+primary_q = None
 for block in blocks.values():
     logger.debug('Processing block {}'.format(block.key))
     chans = [c.name for c in block.channels]
@@ -218,6 +235,10 @@ for block in blocks.values():
             chans, start, end, frametype=block.frametype, source=block.source,
             nproc=args.nproc, verbose='Reading block:'.rjust(30))
 
+    if args.coupling_functions_file is not None:
+        block, data = omega.apply_coupling_functions(block, data, args.coupling_functions_file)
+    channels_below_thresh = {}
+
     # process individual channels
     for channel in block.channels:
         if channel.name in completed:  # load checkpoint
@@ -232,16 +253,26 @@ for block in blocks.values():
             html.write_qscan_page(ifo, gps, analyzed, **htmlv)
             continue
 
+        if primary_q is not None:
+            setattr(channel, 'qrange', (primary_q, primary_q))
+
+        if channels_below_thresh.get(channel.name.replace('_coupling', '')):
+            fthresh = 1e99
+        else:
+            fthresh = args.far_threshold
+
         try:  # scan the channel
             logger.info(' -- Scanning channel {}'.format(channel.name))
             series = omega.scan(
                 gps, channel, data[channel.name].astype('float64'), fftlength,
-                resample=block.resample, fthresh=args.far_threshold,
+                resample=block.resample, fthresh=fthresh,
                 search=block.search)
         except (ValueError, KeyError) as exc:
             warnings.warn("Skipping {}: [{}] {}".format(
                 channel.name, type(exc), str(exc)), UserWarning)
             continue
+
+        channels_below_thresh[channel.name] = (series is not None)
 
         if series is None:
             logger.warning(
@@ -249,9 +280,12 @@ for block in blocks.values():
                 'rate {} Hz'.format(args.far_threshold))
             continue  # channel is insignificant, skip it
 
+        if channel.name == primary.channel.name:
+            primary_q = series[3].plane.q
+
         logger.info(
             ' -- Plotting omega scan products for {}'.format(channel.name))
-        plot.write_qscan_plots(gps, channel, series, colormap=args.colormap)
+        plot.write_qscan_plots(gps, channel, series, colormap=args.colormap, gw_track=gw_track)
 
         if correlate is not None:
             logger.info(' -- Cross-correlating {}'.format(channel.name))

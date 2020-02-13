@@ -41,7 +41,8 @@ ACCOUNTING_GROUP_USER = os.getenv(
 
 def get_command_line_flags(ifo, colormap='viridis', nproc=8, far=3.171e-8,
                            config_file=None, disable_correlation=False,
-                           disable_checkpoint=False, ignore_state_flags=False):
+                           disable_checkpoint=False, ignore_state_flags=False,
+                           coupling_functions_file=None, graceid=None):
     """Get a list of optional command-line arguments to `gwdetchar-omega`
     """
     flags = [
@@ -58,6 +59,10 @@ def get_command_line_flags(ifo, colormap='viridis', nproc=8, far=3.171e-8,
         flags.append("--disable-checkpoint")
     if ignore_state_flags:
         flags.append("--ignore-state-flags")
+    if coupling_functions_file is not None:
+        flags.extend(("--coupling-functions-file", os.path.abspath(coupling_functions_file)))
+    if graceid is not None:
+        flags.extend(("--graceid", graceid))
     return flags
 
 

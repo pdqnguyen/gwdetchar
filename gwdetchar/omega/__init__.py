@@ -30,6 +30,8 @@ __credits__ = 'Alex Urban <alexander.urban@ligo.org>'
 from .core import (
     highpass,
     whiten,
+    apply_coupling_functions,
+    get_waveform,
     conditioner,
     primary,
     cross_correlate,

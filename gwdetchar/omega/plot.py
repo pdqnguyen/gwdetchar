@@ -143,7 +143,7 @@ def timeseries_plot(data, gps, span, channel, output, ylabel=None,
     plot.close()
 
 
-def spectral_plot(data, gps, span, channel, output, colormap='viridis',
+def spectral_plot(data, gps, span, channel, output, colormap='viridis', gw_track=None,
                   clim=None, nx=1400, norm='linear', figsize=(12, 6)):
     """Custom plot for a GWPy spectrogram or Q-gram
 
@@ -202,12 +202,16 @@ def spectral_plot(data, gps, span, channel, output, colormap='viridis',
     # set title
     title = '{0} with $Q$ of {1:.1f}'.format(texify(channel), Q)
     ax.set_title(title)
+    # add GW event time-frequency track
+    if isinstance(gw_track, tuple):
+        track_t, track_f = gw_track
+        ax.plot(track_t, track_f, 'r-')
     # save plot and close
     plot.savefig(output)
     plot.close()
 
 
-def write_qscan_plots(gps, channel, series, colormap='viridis'):
+def write_qscan_plots(gps, channel, series, colormap='viridis', gw_track=None):
     """Custom plot utility for a full omega scan
 
     Parameters
@@ -238,14 +242,14 @@ def write_qscan_plots(gps, channel, series, colormap='viridis'):
         # plot whitened qscan
         spectral_plot(
             qspec, gps, span, channel.name, str(png1), clim=(0, 25),
-            colormap=colormap)
+            colormap=colormap, gw_track=gw_track)
         # plot autoscaled, whitened qscan
         spectral_plot(qspec, gps, span, channel.name, str(png2),
-                      colormap=colormap)
+                      colormap=colormap, gw_track=gw_track)
         # plot raw qscan
         spectral_plot(
             rqspec, gps, span, channel.name, str(png3), clim=(0, 25),
-            colormap=colormap)
+            colormap=colormap, gw_track=gw_track)
         # plot raw timeseries
         timeseries_plot(xoft, gps, span, channel.name, str(png4),
                         ylabel='Amplitude')
